@@ -1,4 +1,6 @@
 # Author:       Shuangquan Lyu
+# Student ID:   780052
+# Date:         26th Oct 2015
 # Purpose:      Extract wikipedia information for landmarks.
 #               This is done through:
 #                   (1)Extract coordinates from OpenStreetMap file.
@@ -8,6 +10,8 @@
 
 import urllib2
 import pdb
+from HTMLParser import HTMLParser
+from htmlentitydefs import name2codepoint
 
 url = 'https://en.wikipedia.org/wiki/'
 # 'result (Final V1.0).txt' records the landmarks from OpenStreetMap with the information extracted from Wikipedia.
@@ -15,10 +19,19 @@ outFile = open('result (Final V1.1).txt', 'w')
 # 'MU.xml' is OpenStreetMap's landmarks data. Including landmarks' names, coordinates and etc.
 inFile = open('MU.xml', 'r')
 
+# Used for parsering the first paragraph of those titles without infoBox
+class MyHTMLParser(HTMLParser):
+    content = ""
+    def handle_data(self, data):
+        #print "Data     :", data
+        MyHTMLParser.content += data
+
 # Compare the coordinates(including latitude and longitude) from OpenStreetMap and Wikipedia
 def cmpCoor(CoorOSM, CoorWiki):
     print CoorOSM
     print CoorWiki
+    if (CoorOSM == "" or CoorWiki == ""):
+        return False
     OSM_Lat = ""
     OSM_Long = ""
     Wiki_Lat = ""
@@ -48,10 +61,10 @@ def cmpCoor(CoorOSM, CoorWiki):
 
 ################################################################################
 # Used in the file from OpenStreetMap.
-# Only extract those coordinates from tag <node>.
-# iSo if we encountered wth <way> or <member>(a child node of <relation>), we should jump over it (namely return False)
+# Only extract those coordinates from tag <node> and <way>.
+# So if we encountered with <member>(a child node of <relation>), we should jump over it (namely return False)
 def checkTag(s):
-    if (s == '<way' or s == '<mem'):
+    if (s == '<mem'):
         return False
     else:
         return True
@@ -108,30 +121,81 @@ def findCoord(landMarkName):
     temp = 'k="name" v="'
     temp_search = temp + landMarkName
     i = mapInfo.find(temp_search)
+    # If the identifier string can be found, we can continue to search the landmark's coordinates
+    # Variable i used to iterate the whole file
     if (i != -1):
         cooInfo = ""
-        # We only collect the coordinates of tag <node>, so if the tag is <way> or <relation>(with <member> inside), we just drop it.
-        # Add four characters together to check whether it is latitude or longitude.
+        # We only collect the coordinates of tag <node> and <way>, so if the tag is <relation>(with <member> inside), we just drop it.
+        # Add four characters together to check whether it is latitude or longitude when search in <node>.
         tem = mapInfo[i]+mapInfo[i+1]+mapInfo[i+2]+mapInfo[i+3]
         global lati
         global longi
         lati = ""
         longi = ""
+        # Every check whether we are searching the <relation> tag. If so, we should stop immediately because we don't want to use it.
         while (checkTag(tem)):
+            # @Test
+            #pdb.set_trace()
+
             if (tem == 'lon='):
+                # Variable j used to iterate the <node> tage's content
+                # Plus 5 to jump over substring "lon="
                 j = i+5
                 while (mapInfo[j] != '"'):
                     longi += mapInfo[j]
                     j += 1
-            if (tem == 'lat='):
+            elif (tem == 'lat='):
                 j = i+5
                 while (mapInfo[j] != '"'):
                     lati += mapInfo[j]
                     j += 1
-            if (tem == '<nod'):
+            # If met '<node', it means the search in the <node> tag should stop
+            elif (tem == '<nod'):
                 break
+
+            # If met '<nd ', it means we are searching in the <way> tag.
+            # So we should extract the node reference number and use it to extract the node's actual coordinates.
+            # Here I temporaly use the first node in the <way> tag. (The <way> tag can have 2 to 2000 <nd> tags)
+            elif (tem == '<nd ' and lati == ""):
+                # Plus 8 to jump over '<nd ref="'
+                j = mapInfo.find('"', i) + 1
+                nodeRef = ""
+                while (mapInfo[j] != '"'):
+                    nodeRef += mapInfo[j]
+                    j += 1
+                # @Test
+                print nodeRef
+                # Then find "<node id="+nodeRef
+                wayNodeIndex = mapInfo.find('<node id="'+nodeRef)
+                # As long as there is coresponding <node> tag in this xml file, we should extract the coordinate infomation of the way node.
+                if (wayNodeIndex != -1):
+                    JumpNoUseInfor = 100
+                    wayNodeIndex += JumpNoUseInfor
+                    j = mapInfo.find("lat=", wayNodeIndex)
+                    # Plus 5 to jump over substring "lat="
+                    j += 5
+                    if (lati == ""):
+                        while (mapInfo[j] != '"'):
+                            lati += mapInfo[j]
+                            j += 1
+                    _j = j
+                    j = mapInfo.find("lon=", _j)
+                    # Plus 5 to jump over substring "lon="
+                    j += 5
+                    if (longi == ""):
+                        while (mapInfo[j] != '"'):
+                            longi += mapInfo[j]
+                            j += 1
+                    break
+            # If met '<way', it means the search in the <way> tag should stop
+            elif (tem == '<way'):
+                break
+
+            # i minus 1 to iterate backwards, since the information of the landmark is before the identifier <tag k="name" v="...">
+            # This controls the outer iteration.
             i -= 1
             tem = mapInfo[i]+mapInfo[i+1]+mapInfo[i+2]+mapInfo[i+3]
+
         if (lati == ""):
             return ""
         else:
@@ -237,12 +301,14 @@ def extractInfoBox(HTML, infoIndex):
     return infoBoxMessage
 
 ####################################################################################################
+# This is the MAIN program
 # resultV5.txt stores the matching result generated from previous program, in the format of "landmark name - wikipedia name".
 with open('resultV5.txt', 'r') as f:
     fi = f.readlines()
     multiMeaningCount = 0
     foundedSubTitle = 0
     landmarkCount = 0
+    # For every record in the landmark (each with a Wikipedia matching), search its corresponding information
     for line in fi:
         wikiSymbol = 'Wikipedia title : '
         landMarkSymbol = 'Landmark name : '
@@ -265,13 +331,19 @@ with open('resultV5.txt', 'r') as f:
         # @Test
         print title
 
+        # @Test
+        #if (title != "Carlton"):
+        #    continue
+
         landmarkCount += 1
 
         ###################################################################################################
         # Find the landmark name in OpenStreetMap's file, in order to find its coordinate.
         coordContent = ""
         openStreetIndex += len(landMarkSymbol)
-        # If there are continues spaces, then we have collected the whole name of the landmark
+        # If there are continous spaces, then it means that we have collected the whole name of the landmark
+        # For example, a record is "Landmark name : 7-11       ---  Wikipedia title : 7-11"
+        # If we encountered two contineous spaces, it means that the first part has been collected.
         while (not (line[openStreetIndex] == ' ' and line[openStreetIndex+1] == ' ')):
             coordContent += line[openStreetIndex]
             openStreetIndex += 1
@@ -286,6 +358,9 @@ with open('resultV5.txt', 'r') as f:
             coordInfo = '{:30s} {:4s} {:30s}'.format("Landmark : [" + title +"] ", ':', coordFromOSM+'\n\n')
         else:
             coordInfo = '{:30s}'.format("Landmark : [" + title +"] " + '\n\n')
+        # @Test
+        print coordInfo
+
         outFile.write(coordInfo)
 
         ##################################################################################
@@ -293,7 +368,7 @@ with open('resultV5.txt', 'r') as f:
         multiReferSymbol = 'may refer to:'
         referringIndex = html.find(multiReferSymbol)
         # there are multiple referring titles
-        if (referringIndex != -1):
+        if (referringIndex != -1 and coordFromOSM != ""):
             #outFile.write("This landmark has multiple relative links (showing at most ten below):\n")
             count = 0
             multiMeaningCount += 1
@@ -338,7 +413,10 @@ with open('resultV5.txt', 'r') as f:
                             if (_infoI != -1):
                                 s0 = extractInfoBox(subHtml, _infoI)
                                 foundedSubTitle += 1
-                                outFile.write(s0 +'\n\n')
+                                # We don't need the coordinates in the infoBox, in order not to confuse users.
+                                # (The coordinate from infoBox and OpenStreetMap may be different)
+                                if (s0.find("Coordinates :") == -1):
+                                    outFile.write(s0 +'\n\n')
                                 break
 
                     ############################################################
@@ -353,7 +431,21 @@ with open('resultV5.txt', 'r') as f:
         # There exists an information box in this page
         if (infoI != -1):
             s1 = extractInfoBox(html, infoI)
-            outFile.write(s1 +'\n\n')
+            # We don't need the coordinate in the infoBox, in order not to confuse users.
+            # (The coordinate from infoBox and OpenStreetMap may be different)
+            if (s1.find("Coordinates :") == -1):
+                outFile.write(s1 +'\n\n')
+        else:
+            paragraph = '<div id="mw-content-text" lang="en" dir="ltr" class="mw-content-ltr">'
+            infoI = subHtml.find(paragraph)
+            _infoI = subHtml.find("<p>",infoI)
+            __infoI = subHtml.find("</p>",_infoI+1)
+            _temp = ""
+            while (_infoI <= __infoI):
+                _temp += subHtml[_infoI]
+                _infoI += 1
+                parser = MyHTMLParser()
+                parser.feed(_temp)
 
 outFile.write("\n[Summary]\n")        
 outFile.write("    There are " + str(landmarkCount) + " landmarks in total.\n")
