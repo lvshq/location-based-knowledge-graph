@@ -15,11 +15,11 @@ from htmlentitydefs import name2codepoint
 
 url = 'https://en.wikipedia.org/wiki/'
 # 'result (Final V1.0).txt' records the landmarks from OpenStreetMap with the information extracted from Wikipedia.
-outFile = open('result (Final V1.1).txt', 'w')
+outFile = open('result (Final V1.2).txt', 'w')
 # 'MU.xml' is OpenStreetMap's landmarks data. Including landmarks' names, coordinates and etc.
 inFile = open('MU.xml', 'r')
 
-# Used for parsering the first paragraph of those titles without infoBox
+# Used for extract the first paragraph of those titles without infoBox
 class MyHTMLParser(HTMLParser):
     content = ""
     def handle_data(self, data):
@@ -133,9 +133,6 @@ def findCoord(landMarkName):
         longi = ""
         # Every check whether we are searching the <relation> tag. If so, we should stop immediately because we don't want to use it.
         while (checkTag(tem)):
-            # @Test
-            #pdb.set_trace()
-
             if (tem == 'lon='):
                 # Variable j used to iterate the <node> tage's content
                 # Plus 5 to jump over substring "lon="
@@ -162,8 +159,6 @@ def findCoord(landMarkName):
                 while (mapInfo[j] != '"'):
                     nodeRef += mapInfo[j]
                     j += 1
-                # @Test
-                print nodeRef
                 # Then find "<node id="+nodeRef
                 wayNodeIndex = mapInfo.find('<node id="'+nodeRef)
                 # As long as there is coresponding <node> tag in this xml file, we should extract the coordinate infomation of the way node.
@@ -204,6 +199,7 @@ def findCoord(landMarkName):
 
 ####################################################################################################
 # Extract the content from information box of each landmark's matching wikipedia page.
+# NOTE: This part REALLY could be rewritten, because I didn't use any libraies here (because of unfamiliar), which make it hard to read and maintain.
 def extractInfoBox(HTML, infoIndex):
     endSymbol = "</table>"
     extraTableTag = "<table"
@@ -263,8 +259,12 @@ def extractInfoBox(HTML, infoIndex):
                         i += 6
             else:
                 i += 1
+            # We don't need the coordinate in the infoBox, in order not to confuse users.
+            # (The coordinate from infoBox and OpenStreetMap may be different)
+            # So if the content contains "Coordinates : ", we shouldn't print it.
             if (content != ""):
                 infoBoxMessage += "---   " + content + " : "
+            
 
         bracket = 0
         # Extract the body of each row of the information box
@@ -297,11 +297,12 @@ def extractInfoBox(HTML, infoIndex):
         i = temp
         infoBoxMessage += "\n"
 
+
     return infoBoxMessage
 
 ####################################################################################################
 # This is the MAIN program
-# resultV5.txt stores the matching result generated from previous program, in the format of "landmark name - wikipedia name".
+# resultV5.txt stores the matching result generated from previous program, which is in the format of "landmark name - wikipedia name".
 with open('resultV5.txt', 'r') as f:
     fi = f.readlines()
     multiMeaningCount = 0
@@ -331,7 +332,7 @@ with open('resultV5.txt', 'r') as f:
         print title
 
         # @Test
-        #if (title != "Baillieu Library"):
+        #if (title != "Cowan"):
         #    continue
 
         landmarkCount += 1
@@ -364,19 +365,24 @@ with open('resultV5.txt', 'r') as f:
 
         ##################################################################################
         # For those titles with multiple referrings
+        # The two string (and maybe more) are the identifiers I found. They can indicate a title with multiple referrings.
         multiReferSymbol = 'may refer to:'
         _multiReferSymbol = 'may also refer to:'
         referringIndex = html.find(multiReferSymbol)
         _referringIndex = html.find(_multiReferSymbol)
-        # there are multiple referring titles
+        # If the index is not -1, then it means there are multiple referring titles.
         if ((referringIndex != -1 or _referringIndex != -1) and coordFromOSM != ""):
-            #outFile.write("This landmark has multiple relative links (showing at most ten below):\n")
+            # Since either 'may refer to:' and 'may also refer to:' may appear, we just uniform the start index.
+            # That is, use the one which appears and assign its index to referringIndex.
             if (_referringIndex != -1 and referringIndex == -1):
                 referringIndex = _referringIndex
             count = 0
+            # multiMeaningCount counts the number of multiple referring and print at last.
             multiMeaningCount += 1
+            # This string identifier is used for all the multiple referrings.
             coord = '<a href="/wiki'
             subIndex = html.find(coord, referringIndex)
+
             # As long as there are subtitles, print it
             while subIndex != -1:
                 containsColon = False
@@ -416,10 +422,7 @@ with open('resultV5.txt', 'r') as f:
                             if (_infoI != -1):
                                 s0 = extractInfoBox(subHtml, _infoI)
                                 foundedSubTitle += 1
-                                # We don't need the coordinates in the infoBox, in order not to confuse users.
-                                # (The coordinate from infoBox and OpenStreetMap may be different)
-                                if (s0.find("Coordinates :") == -1):
-                                    outFile.write(s0 +'\n\n')
+                                outFile.write(s0 +'\n\n')
                                 break
 
                     ############################################################
@@ -435,13 +438,8 @@ with open('resultV5.txt', 'r') as f:
         # There exists an information box in this page
         if (infoI != -1):
             s1 = extractInfoBox(html, infoI)
-            # We don't need the coordinate in the infoBox, in order not to confuse users.
-            # (The coordinate from infoBox and OpenStreetMap may be different)
-            if (s1.find("Coordinates :") == -1):
-                outFile.write(s1 +'\n\n')
+            outFile.write(s1 +'\n\n')
         else:
-            # @Test
-            #pdb.set_trace()
 
             paragraph = '<div id="mw-content-text" lang="en" dir="ltr" class="mw-content-ltr">'
             infoI = html.find(paragraph)
@@ -465,8 +463,13 @@ with open('resultV5.txt', 'r') as f:
                 else:
                     i += 3
                 i += 1
-            print firstPara
-            outFile.write('---   ' + firstPara +'\n\n')
+            
+            # Temporally I eliminate those first paragraphs that are too short (less than 75 characters).
+            # Because too short means there is nothing important from it or it may just be the first paragraph in multiply referrings and cantains "may refer to"...
+            l = len(firstPara)
+            if (l > 75):
+                print firstPara
+                outFile.write('---   ' + firstPara +'\n\n')
 
 outFile.write("\n[Summary]\n")        
 outFile.write("    There are " + str(landmarkCount) + " landmarks in total.\n")
