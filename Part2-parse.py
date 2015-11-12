@@ -23,8 +23,7 @@ inFile = open('MU.xml', 'r')
 class MyHTMLParser(HTMLParser):
     content = ""
     def handle_data(self, data):
-        #print "Data     :", data
-        MyHTMLParser.content += data
+        self.content += data
 
 # Compare the coordinates(including latitude and longitude) from OpenStreetMap and Wikipedia
 def cmpCoor(CoorOSM, CoorWiki):
@@ -332,7 +331,7 @@ with open('resultV5.txt', 'r') as f:
         print title
 
         # @Test
-        #if (title != "Carlton"):
+        #if (title != "Baillieu Library"):
         #    continue
 
         landmarkCount += 1
@@ -366,10 +365,14 @@ with open('resultV5.txt', 'r') as f:
         ##################################################################################
         # For those titles with multiple referrings
         multiReferSymbol = 'may refer to:'
+        _multiReferSymbol = 'may also refer to:'
         referringIndex = html.find(multiReferSymbol)
+        _referringIndex = html.find(_multiReferSymbol)
         # there are multiple referring titles
-        if (referringIndex != -1 and coordFromOSM != ""):
+        if ((referringIndex != -1 or _referringIndex != -1) and coordFromOSM != ""):
             #outFile.write("This landmark has multiple relative links (showing at most ten below):\n")
+            if (_referringIndex != -1 and referringIndex == -1):
+                referringIndex = _referringIndex
             count = 0
             multiMeaningCount += 1
             coord = '<a href="/wiki'
@@ -426,7 +429,8 @@ with open('resultV5.txt', 'r') as f:
 
         ##################################################################################
         
-        # find each title's Information Box content
+        # find each sub title's Information Box content
+        # infoSymbol = 'infobox vcard'
         infoI = html.find(infoSymbol)
         # There exists an information box in this page
         if (infoI != -1):
@@ -436,16 +440,33 @@ with open('resultV5.txt', 'r') as f:
             if (s1.find("Coordinates :") == -1):
                 outFile.write(s1 +'\n\n')
         else:
+            # @Test
+            #pdb.set_trace()
+
             paragraph = '<div id="mw-content-text" lang="en" dir="ltr" class="mw-content-ltr">'
-            infoI = subHtml.find(paragraph)
-            _infoI = subHtml.find("<p>",infoI)
-            __infoI = subHtml.find("</p>",_infoI+1)
+            infoI = html.find(paragraph)
+            _infoI = html.find("<p>", infoI)
+            __infoI = html.find("</p>", _infoI+1)
             _temp = ""
             while (_infoI <= __infoI):
-                _temp += subHtml[_infoI]
+                _temp += html[_infoI]
                 _infoI += 1
-                parser = MyHTMLParser()
-                parser.feed(_temp)
+
+            parser = MyHTMLParser()
+            parser.feed(_temp)
+            # Remove those reference signs such as "[1]"
+            firstPara = ""
+            _content = parser.content
+            length = len(_content)
+            i = 0
+            while (i < length):
+                if ( (i+2) < length and _content[i]+_content[i+2] != "[]"):
+                    firstPara += _content[i]
+                else:
+                    i += 3
+                i += 1
+            print firstPara
+            outFile.write('---   ' + firstPara +'\n\n')
 
 outFile.write("\n[Summary]\n")        
 outFile.write("    There are " + str(landmarkCount) + " landmarks in total.\n")
